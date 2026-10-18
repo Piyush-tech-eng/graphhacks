@@ -87,6 +87,19 @@ class GraphOpsTests(unittest.TestCase):
         self.assertEqual("identity-api", incident.action_plan.target_service_id)
         self.assertTrue(all(item["passed"] for item in incident.action_plan.preconditions))
 
+    def test_incident_graph_view_includes_selected_target_and_action_blast_radius(self):
+        engine = GraphOpsEngine()
+        incident = engine.create_incident("db-pool-exhaustion")
+        engine.run_to_plan(incident.id)
+        graph = engine.view(incident.id)["graph_context"]
+        node_ids = {node["id"] for node in graph["nodes"]}
+        roles = {node["id"]: node["roles"] for node in graph["nodes"]}
+        self.assertEqual(incident.selections[-1].target_service_id, graph["selected_target_service_id"])
+        self.assertIn("incident_target", roles["checkout-api"])
+        self.assertIn("action_target", roles["orders-db"])
+        self.assertTrue(set(graph["blast_radius_service_ids"]).issubset(node_ids))
+        self.assertTrue(any(edge["source"] == "checkout-api" and edge["target"] == "orders-db" for edge in graph["edges"]))
+
     def test_action_safety_rejects_a_target_outside_alert_graph(self):
         engine = GraphOpsEngine()
         incident = engine.create_incident("bad-checkout-deployment")

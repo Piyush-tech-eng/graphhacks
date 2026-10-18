@@ -50,9 +50,13 @@ To exercise the core and HTTP routes without starting a separate server:
 
 ```powershell
 python scripts/run_benchmark.py
+python scripts/run_catalog_evaluation.py
 python -m unittest discover -s tests -v
 python -m pytest -q
+node tests/test_ui_state.js
 ```
+
+The dashboard presents one authoritative incident view from the API: changing the scenario clears the active evidence and plan; the graph-mode badge comes from `/health`; and the connected-data view is rendered from tenant-scoped nodes and `DEPENDS_ON` edges. The evidence timeline links tool choices, observations, hypothesis updates, recovery checks, approval, and simulated verification. The trace can be exported as JSON. Active incident state is still in memory and is not restored after a server restart.
 
 ## FalkorDB mode
 
@@ -117,7 +121,18 @@ Hypotheses are currently an in-memory evidence ledger, not persisted `Hypothesis
 
 The two tenants have different service graphs; a lookup for an Acme service cannot resolve inside the Northstar graph. The suite verifies first-call routing, direct and transitive blast radius, tenant isolation, evidence-linked approval, simulation gating, and the blocked-impact scenario.
 
-The benchmark's flat baseline is a fixed alert-only mapping by scenario class. It is not an independently executed selector and must not be interpreted as a controlled comparison. The separate catalog-scale 20/60/150/300 tool sweep from the design remains future evaluation work.
+The original fixture benchmark's flat baseline is a fixed scenario-class mapping and is not an independently executed selector. A separate reproducible rank-only stress evaluation is available with `python scripts/run_catalog_evaluation.py`; it compares the production GraphRoute score weights with a lexical alert-only baseline on the same six authored tasks, catalogs, and one-call budget. Catalogs use seeded synthetic distractor tools. It does not call tools or infrastructure and is not a production, general-LLM, or end-to-end execution benchmark.
+
+Latest local rank-only evaluation (six synthetic tasks; ranking time is host-dependent):
+
+| Catalog size | GraphRoute top-1 | Lexical baseline top-1 | Candidate evaluations per choice |
+| ---: | ---: | ---: | ---: |
+| 20 | 100% | 66.7% | 20 |
+| 60 | 100% | 33.3% | 60 |
+| 150 | 100% | 33.3% | 150 |
+| 300 | 100% | 33.3% | 300 |
+
+These small, authored workloads intentionally test ranking under distractor growth; they are not broad evidence of superiority or scale performance. A representative larger task set and end-to-end selector/tool-call evaluation remain future work.
 
 ## Safety and scope
 

@@ -49,6 +49,18 @@ class GraphRouteSelector:
         self.graph = graph
 
     @staticmethod
+    def score_features(task_relevance: float, graph_context: float, evidence_gap: float, history: float, cost: float, risk: float) -> float:
+        """Shared, auditable score formula used by routing and scale evaluation."""
+        return (
+            0.28 * task_relevance
+            + 0.22 * graph_context
+            + 0.32 * evidence_gap
+            + 0.12 * history
+            - 0.04 * cost
+            - 0.02 * risk
+        )
+
+    @staticmethod
     def _completed(incident: Incident, gap: str, target: str) -> bool:
         return f"{gap}:{target}" in incident.resolved_gaps
 
@@ -135,13 +147,9 @@ class GraphRouteSelector:
             default_history = TRANSITION_PRIOR.get((incident.last_tool_id or "", tool.id), 0.50)
             history, history_source = self.graph.transition_prior_details(incident.tenant_id, incident.last_tool_id, tool.id, default_history)
             risk = {RiskTier.LOW: 0.0, RiskTier.MEDIUM: 0.65, RiskTier.HIGH: 1.0}[tool.risk_tier]
-            score = (
-                0.28 * candidate.task_relevance
-                + 0.22 * candidate.graph_context
-                + 0.32 * candidate.gap_value
-                + 0.12 * history
-                - 0.04 * tool.cost
-                - 0.02 * risk
+            score = self.score_features(
+                candidate.task_relevance, candidate.graph_context, candidate.gap_value,
+                history, tool.cost, risk,
             )
             ranked.append(Selection(
                 tool_id=tool.id,

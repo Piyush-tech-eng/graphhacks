@@ -52,6 +52,22 @@ class GraphOpsAPITests(unittest.TestCase):
         self.assertEqual("incident_created", trace[0]["event_type"])
         self.assertEqual("recovery_simulated", trace[-1]["event_type"])
 
+    def test_scenario_views_keep_metadata_and_graph_nodes_tenant_scoped(self):
+        first = self.routes["/api/incidents"](CreateIncidentRequest(scenario_id="incomplete-inventory"))
+        second = self.routes["/api/incidents"](CreateIncidentRequest(scenario_id="northstar-identity-deployment"))
+        catalog = {item["id"]: item for item in self.engine.scenarios()}
+        for incident in (first, second):
+            scenario = catalog[incident["scenario_id"]]
+            self.assertEqual((scenario["severity"], scenario["tenant_id"], scenario["summary"]),
+                             (incident["severity"], incident["tenant_id"], incident["summary"]))
+        first_node_ids = {node["id"] for node in first["graph_context"]["nodes"]}
+        second_node_ids = {node["id"] for node in second["graph_context"]["nodes"]}
+        self.assertIn("inventory-api", first_node_ids)
+        self.assertIn("identity-api", second_node_ids)
+        self.assertNotIn("identity-api", first_node_ids)
+        self.assertNotIn("inventory-api", second_node_ids)
+        self.assertTrue(all(edge["type"] == "DEPENDS_ON" for edge in second["graph_context"]["edges"]))
+
     def test_api_error_paths_return_client_errors(self):
         with self.assertRaises(HTTPException) as missing_scenario:
             self.routes["/api/incidents"](CreateIncidentRequest(scenario_id="missing"))
@@ -68,3 +84,7 @@ class GraphOpsAPITests(unittest.TestCase):
     def test_benchmark_endpoint_reports_catalogue_fixture_results(self):
         response = self.routes["/api/benchmark"]()
         self.assertEqual(4, response["summary"]["case_count"])
+        self.assertEqual([20, 60, 150, 300], [item["catalog_size"] for item in response["catalog_scale"]])
+        self.assertTrue(all(item["case_count"] == response["task_count"] for item in response["catalog_scale"]))
+        self.assertEqual(1, response["call_budget"])
+        self.assertIn("rank-only", response["measurement_note"])

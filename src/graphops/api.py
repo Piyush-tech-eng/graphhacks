@@ -55,7 +55,8 @@ def create_app(engine: GraphOpsEngine | None = None) -> FastAPI:
     @app.post("/api/incidents/{incident_id}/step")
     def step(incident_id: str) -> dict:
         try:
-            return app.state.engine.step(incident_id)
+            app.state.engine.step(incident_id)
+            return app.state.engine.view(incident_id)
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 

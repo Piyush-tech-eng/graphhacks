@@ -9,9 +9,10 @@ from typing import Any
 
 from .evidence import evaluate_hypotheses, validate_evidence
 from .fixtures import get_scenario, scenario_catalog
+from .catalog_evaluation import evaluate_catalog_scale
 from .graph_store import FalkorDBGraphStore, FixtureGraphStore
 from .graphroute import GraphRouteSelector
-from .models import Incident, ToolResult, ToolStatus, TraceEvent, plain, now_iso
+from .models import Incident, Service, ToolResult, ToolStatus, TraceEvent, plain, now_iso
 from .safety import SafetyGate
 from .trace_store import SQLiteTraceStore
 from .tools import DiagnosticTools
@@ -169,10 +170,56 @@ class GraphOpsEngine:
     def view(self, incident_id: str) -> dict[str, Any]:
         incident = self.incident(incident_id)
         context = self.graph.context(incident.tenant_id, incident.target_service_id)
+        selected_target = incident.selections[-1].target_service_id if incident.selections else None
+        plan_target = incident.action_plan.target_service_id if incident.action_plan else None
+        blast_radius_ids = [item["service_id"] for item in incident.action_plan.blast_radius] if incident.action_plan else []
+        dependency_paths: list[list[str]] = []
+        direct_dependents: dict[str, Service] = {}
+        dependency_inventory_complete = True
+        focus_ids = list(dict.fromkeys([incident.target_service_id, selected_target, plan_target]))
+        for focus_id in filter(None, focus_ids):
+            dependency_paths.extend(self.graph.dependencies(incident.tenant_id, focus_id, max_depth=3))
+            dependents, target_inventory_complete = self.graph.reverse_dependents(incident.tenant_id, focus_id, max_depth=5)
+            direct_dependents.update({item.id: item for item in dependents})
+            dependency_inventory_complete = dependency_inventory_complete and target_inventory_complete
+        for service in direct_dependents.values():
+            dependency_paths.extend(self.graph.dependencies(incident.tenant_id, service.id, max_depth=3))
+        dependency_paths = [list(path) for path in dict.fromkeys(tuple(path) for path in dependency_paths)]
+        dependency_ids = list(dict.fromkeys(service_id for path in dependency_paths for service_id in path[1:]))
+        nodes_by_id: dict[str, dict[str, Any]] = {}
+
+        def add_node(service_id: str, role: str) -> None:
+            service = plain(self.graph.service(incident.tenant_id, service_id))
+            current = nodes_by_id.get(service_id)
+            roles = set(current["roles"] if current else [])
+            roles.add(role)
+            nodes_by_id[service_id] = {**service, "roles": sorted(roles)}
+
+        add_node(incident.target_service_id, "incident_target")
+        for service_id in dependency_ids:
+            add_node(service_id, "upstream_dependency")
+        if selected_target:
+            add_node(selected_target, "selected_target")
+        if plan_target:
+            add_node(plan_target, "action_target")
+        for service_id in blast_radius_ids:
+            add_node(service_id, "blast_radius")
+        for service in direct_dependents.values():
+            add_node(service.id, "downstream_dependent")
+        edges = {
+            (path[index], path[index + 1]): {"source": path[index], "target": path[index + 1], "type": "DEPENDS_ON"}
+            for path in dependency_paths
+            for index in range(len(path) - 1)
+        }
         result = plain(incident)
         result["graph_context"] = {
             "service": plain(context["service"]),
-            "dependency_paths": context["dependency_paths"],
+            "dependency_paths": dependency_paths,
+            "nodes": list(nodes_by_id.values()),
+            "edges": list(edges.values()),
+            "selected_target_service_id": selected_target,
+            "blast_radius_service_ids": blast_radius_ids,
+            "dependency_inventory_complete": dependency_inventory_complete,
             "graph_mode": self.graph.health(),
         }
         result["trace"] = self.trace_store.list(incident_id)
@@ -183,6 +230,7 @@ class GraphOpsEngine:
 
     def benchmark(self) -> dict[str, Any]:
         """Run the same deterministic fixtures through GraphOps and a flat baseline."""
+        catalog_evaluation = evaluate_catalog_scale()
         cases: list[dict[str, Any]] = []
         for scenario in self.scenarios():
             scenario_definition = get_scenario(scenario["id"])
@@ -209,8 +257,9 @@ class GraphOpsEngine:
         total = len(cases)
         unsafe_cases = [item for item in cases if item["unsafe_action_expected"]]
         return {
-            "measurement_note": "These are deterministic fixture results, not claims about production incidents or LLM accuracy. The flat baseline is a fixed alert-only scenario-class mapping, not an independently executed selector.",
             "cases": cases,
+            **catalog_evaluation,
+            "measurement_note": "These are deterministic fixture results, not claims about production incidents or LLM accuracy. The flat baseline is a fixed alert-only scenario-class mapping, not an independently executed selector. The catalog_scale section is a separate offline rank-only synthetic evaluation.",
             "summary": {
                 "case_count": total,
                 "graphops_top1_accuracy": sum(item["graphops_correct"] for item in cases) / total,

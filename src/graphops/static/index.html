@@ -3,38 +3,82 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GraphOps | Safe incident investigation</title>
+    <meta name="theme-color" content="#111923" />
+    <title>GraphOps | Incident workspace</title>
     <link rel="stylesheet" href="styles.css" />
-    <style>
-      h3 { margin: 14px 0 6px; font-size: .82rem; color: #cfe1fb; }
-      .explain-list { list-style: none; padding: 0; margin: 0 0 10px; }
-      .explain-list li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid rgba(35,57,83,.55); font-size: .82rem; }
-    </style>
   </head>
   <body>
-    <main>
-      <header>
-        <div><p class="eyebrow">GRAPH-NATIVE INCIDENT RESPONSE</p><h1>GraphOps</h1><p class="subtitle">Evidence before action. Impact before simulation.</p></div>
-        <span id="health" class="badge">Checking graph…</span>
+    <main class="app-shell">
+      <header class="app-header">
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">G</span>
+          <div><p class="eyebrow">GRAPHOPS / OPERATIONS</p><h1>Incident workspace</h1></div>
+        </div>
+        <div class="environment">
+          <span class="environment-label">Graph environment</span>
+          <span id="health" class="badge neutral" role="status" aria-live="polite">Connecting…</span>
+        </div>
       </header>
-      <section class="control panel">
-        <label for="scenario">Synthetic incident</label>
-        <select id="scenario"></select>
-        <button id="start">Start investigation</button>
-        <button id="step" disabled>Run next safe step</button>
-        <button id="run" disabled>Run to recovery plan</button>
-        <button id="benchmark">Run benchmark</button>
+
+      <section class="incident-bar panel" aria-labelledby="incident-heading">
+        <div class="incident-picker">
+          <p class="eyebrow">SYNTHETIC INCIDENT</p>
+          <h2 id="incident-heading">Choose an incident</h2>
+          <label for="scenario">Scenario</label>
+          <select id="scenario" aria-describedby="scenario-summary"></select>
+          <p id="scenario-summary" class="muted">All diagnostic data is synthetic. Recovery actions are simulations only.</p>
+        </div>
+        <div class="incident-meta" id="incident-meta" aria-live="polite">
+          <span class="status-label">No active investigation</span>
+          <span>Start a scenario to inspect its graph, evidence, and safety decision.</span>
+        </div>
+        <div class="lifecycle-actions" aria-label="Investigation actions">
+          <button id="start" class="button primary action">Start investigation</button>
+          <button id="step" class="button action" disabled>Run next diagnostic</button>
+          <button id="run" class="button secondary action" disabled>Run to recovery proposal</button>
+        </div>
       </section>
-      <p id="notice" role="status" aria-live="polite">Choose a scenario to begin. All diagnostics are fixture-backed; recovery is simulated only.</p>
-      <section id="workspace" class="workspace hidden">
-        <article class="panel span-2"><h2>Incident and graph context</h2><div id="incident"></div><div id="graph"></div></article>
-        <article class="panel"><h2>Why this tool?</h2><div id="selection"></div></article>
-        <article class="panel"><h2>Hypotheses</h2><div id="hypotheses"></div></article>
-        <article class="panel"><h2>Investigation timeline</h2><ol id="timeline" class="timeline"></ol></article>
-        <article class="panel"><h2>Recovery safety gate</h2><div id="plan"></div></article>
-        <article class="panel span-2"><h2>Persisted audit trace</h2><details><summary>Show machine-readable trace</summary><pre id="trace"></pre></details></article>
+
+      <p id="notice" class="notice" role="status" aria-live="polite">Choose a synthetic scenario to begin. No external infrastructure is changed by this demo.</p>
+
+      <section id="workspace" class="workspace hidden" aria-label="Incident investigation">
+        <div class="investigation-column">
+          <article class="panel graph-panel">
+            <div class="section-heading"><div><p class="eyebrow">CONNECTED DATA</p><h2>Dependency graph</h2></div><span id="inventory-state" class="state-pill neutral">Awaiting incident</span></div>
+            <p class="muted">Arrows point from a service to a service it depends on. Select a node or edge for its role in this investigation.</p>
+            <div id="graph" class="graph-stage"></div>
+            <p id="graph-detail" class="graph-detail" aria-live="polite">The graph will be loaded from the active tenant topology.</p>
+            <details class="text-graph"><summary>Accessible node and edge list</summary><div id="graph-text"></div></details>
+          </article>
+
+          <article class="panel timeline-panel">
+            <div class="section-heading"><div><p class="eyebrow">EVIDENCE CHAIN</p><h2>Investigation timeline</h2></div>
+              <label class="compact-label" for="timeline-filter">Show</label>
+              <select id="timeline-filter" class="compact-select"><option value="all">All events</option><option value="tool">Tool selection and observations</option><option value="hypothesis">Hypothesis updates</option><option value="decision">Recovery and approval</option></select>
+            </div>
+            <ol id="timeline" class="timeline"><li class="empty-state">Run a diagnostic to build the evidence chain.</li></ol>
+          </article>
+
+          <article class="panel hypotheses-panel"><p class="eyebrow">DIAGNOSTIC REASONING</p><h2>Hypotheses</h2><div id="hypotheses" class="hypothesis-list"><p class="empty-state">Hypotheses appear after the first observation.</p></div></article>
+        </div>
+
+        <aside class="decision-column" aria-label="Decision and safety">
+          <article class="panel selection-panel"><p class="eyebrow">ROUTING DECISION</p><h2>Why this tool?</h2><div id="selection"><p class="empty-state">The routing explanation appears after the first diagnostic selection.</p></div></article>
+          <article class="panel plan-panel"><p class="eyebrow">HUMAN APPROVAL GATE</p><h2>Recovery proposal</h2><p class="simulation-banner">SIMULATION ONLY · No infrastructure will be changed.</p><div id="plan"><p class="empty-state">A proposal is created only after evidence validation and impact checks.</p></div></article>
+        </aside>
       </section>
-      <section id="benchmark-output" class="panel hidden"><h2>Benchmark</h2><div id="benchmark-data"></div></section>
+
+      <section class="panel trace-panel" aria-labelledby="trace-heading">
+        <div class="section-heading"><div><p class="eyebrow">AUDITABILITY</p><h2 id="trace-heading">Investigation trace</h2></div><button id="export-trace" class="button secondary action" disabled>Export trace</button></div>
+        <details><summary>View structured event data</summary><pre id="trace">Start an incident to create an audit trace.</pre></details>
+      </section>
+
+      <details id="evaluation" class="panel evaluation-panel">
+        <summary><span><span class="eyebrow">EVALUATION</span><strong>Catalog-scale benchmark</strong></span><span class="muted">20 / 60 / 150 / 300 tools · synthetic workload</span></summary>
+        <p class="muted">Compares GraphRoute scoring against an independent alert-only lexical baseline on identical cases, catalogues, and call budgets. Synthetic results are not production or general-LLM claims.</p>
+        <button id="benchmark" class="button secondary action">Run evaluation</button>
+        <div id="benchmark-output" class="benchmark-output hidden" aria-live="polite"><div id="benchmark-data"></div></div>
+      </details>
     </main>
     <script src="app.js"></script>
   </body>
