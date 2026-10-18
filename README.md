@@ -67,6 +67,32 @@ python -m uvicorn graphops.api:app --reload
 
 The seed script resets and rebuilds one named graph per tenant. With `FALKORDB_ENABLED=true`, service-context and blast-radius lookups use those graphs, and GraphRoute reads `COMMONLY_FOLLOWS` transition priors from them. If FalkorDB is unavailable, `/health` reports `fixture-fallback` rather than pretending fresh graph data was retrieved.
 
+## Graph data model
+
+Each tenant is isolated in its own named graph (`graphops_acme` or `graphops_northstar`). The fixture store exposes the same service topology and traversal behavior without requiring FalkorDB. FalkorDB seeding creates the structural nodes and edges below; investigation-time writes add run, observation, selection, and action-plan records to the same tenant graph.
+
+| Node label | Main properties | Purpose |
+| --- | --- | --- |
+| `Service` | `id`, `name`, `team`, `criticality`, `status`, `dependency_inventory_complete` | Tenant service catalog and dependency topology |
+| `Tool` | `id`, `name`, `risk_tier`, `enabled` | Allow-listed diagnostic and planning tools |
+| `Incident` | `id`, `summary`, `severity`, `scenario_id`, `status` | Synthetic alert being investigated |
+| `TaskRun` | `id`, `incident_id`, `tenant_id`, `started_at`, `selection_policy` | Bounded GraphRoute investigation run |
+| `Observation` | `id`, `kind`, `source`, `timestamp`, `service_id`, `summary`, `fixture_id`, `tool_run_id`, `values_json` | Typed evidence gathered during a run |
+| `ActionPlan` | `id`, `action_type`, `target_id`, `status`, `simulation_only`, `impact_complete`, `blocked_reason`, `hypothesis_id`, `supporting_observation_ids` | Approval-gated, simulation-only recovery proposal |
+
+| Relationship | Direction | Meaning |
+| --- | --- | --- |
+| `DEPENDS_ON` | `Service` → `Service` | Directed dependency; traversed forward for investigation context and backward for blast radius |
+| `COMMONLY_FOLLOWS` | `Tool` → `Tool` | Workflow prior with `frequency` and `success_rate`; a ranking signal, not a hard-coded route |
+| `HAS_RUN` | `Incident` → `TaskRun` | Associates the investigation run with its incident |
+| `SELECTED_FOR` | `Tool` → `TaskRun` | Records selected tool rank, score, target, and reason codes |
+| `HAS_OBSERVATION` | `Incident` → `Observation` | Attaches gathered evidence to the incident |
+| `OBSERVED_ON` | `Observation` → `Service` | Identifies the service an observation describes |
+| `PROPOSES` | `Incident` → `ActionPlan` | Associates the recovery proposal with the investigated incident |
+| `TARGETS` | `ActionPlan` → `Service` | Identifies the proposed action's target service |
+
+Hypotheses are currently an in-memory evidence ledger, not persisted `Hypothesis` nodes. Their IDs and supporting observation IDs are copied onto `ActionPlan` so the proposal retains a traceable link to its diagnosis. The SQLite audit trace is persisted separately; active incident and approval state is not restored after an application restart.
+
 ## API
 
 | Route | What it does |
