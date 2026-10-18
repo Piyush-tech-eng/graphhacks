@@ -78,6 +78,7 @@ class Selection:
     graph_facts_used: list[str]
     expected_evidence: str
     risk_tier: RiskTier
+    historical_success_source: str = "static transition prior"
 
 
 @dataclass
@@ -112,6 +113,8 @@ class ActionPlan:
     blast_radius: list[dict[str, Any]]
     impact_complete: bool
     preconditions: list[dict[str, Any]]
+    hypothesis_id: str | None = None
+    action_source: str = "synthetic scenario fixture"
     status: str = "pending_approval"
     simulation_only: bool = True
     verification_observation_id: str | None = None

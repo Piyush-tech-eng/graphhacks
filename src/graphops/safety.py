@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from .fixtures import get_scenario
 from .graph_store import FixtureGraphStore
 from .models import ActionPlan, Incident, Observation, RiskTier
 
@@ -13,20 +14,43 @@ class SafetyGate:
         self.graph = graph
 
     def propose(self, incident: Incident) -> ActionPlan:
-        fixture = __import__("graphops.fixtures", fromlist=["get_scenario"]).get_scenario(incident.scenario_id)
+        fixture = get_scenario(incident.scenario_id)
         configured = fixture["plan"]
         target = configured["target"]
         action_type = configured["action_type"]
-        dependents, complete = self.graph.reverse_dependents(incident.tenant_id, target)
+        in_scope_targets = {incident.target_service_id}
+        in_scope_targets.update(path[-1] for path in self.graph.dependencies(incident.tenant_id, incident.target_service_id, max_depth=5))
+        target_in_scope = target in in_scope_targets
+        if target_in_scope:
+            dependents, complete = self.graph.reverse_dependents(incident.tenant_id, target)
+        else:
+            dependents, complete = [], False
         # Scenario inventory flags are a property of this incident, not mutable
         # graph-store state.  Otherwise an incomplete-inventory incident could
         # leak its fail-closed flag into a later, unrelated investigation.
         declared_inventory_complete = all(fixture.get("inventory_complete", {}).values())
         complete = complete and declared_inventory_complete
         leading = next((item for item in incident.hypotheses if item.status == "leading" and item.id != "h-insufficient-evidence"), None)
+        action_matches_hypothesis = bool(
+            leading
+            and (
+                (action_type == "restart_service" and leading.id == "h-database-pool")
+                or (action_type == "rollback_deployment" and leading.id == "h-recent-deployment")
+            )
+        )
+        target_matches_diagnosis = bool(
+            leading
+            and (
+                (leading.id == "h-database-pool" and any(item.service_id == target for item in incident.observations if item.id in leading.support_ids))
+                or (leading.id == "h-recent-deployment" and target == incident.target_service_id)
+            )
+        )
         preconditions = [
             {"name": "known action and target", "passed": action_type in {"restart_service", "rollback_deployment"}},
+            {"name": "target is in incident dependency scope", "passed": target_in_scope},
             {"name": "evidence-linked leading hypothesis", "passed": leading is not None},
+            {"name": "action type matches the leading hypothesis", "passed": action_matches_hypothesis},
+            {"name": "action target matches diagnostic evidence", "passed": target_matches_diagnosis},
             {"name": "dependency inventory complete", "passed": complete},
             {"name": "simulation only", "passed": True},
         ]
@@ -38,6 +62,7 @@ class SafetyGate:
             supporting_observation_ids=leading.support_ids if leading else [],
             blast_radius=[{"service_id": item.id, "service_name": item.name, "team": item.team, "criticality": item.criticality} for item in dependents],
             impact_complete=complete, preconditions=preconditions,
+            hypothesis_id=leading.id if leading else None,
             status="blocked" if failed else "pending_approval",
             blocked_reason=("; ".join(failed) if failed else None),
         )

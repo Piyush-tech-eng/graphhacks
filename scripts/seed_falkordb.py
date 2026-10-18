@@ -39,6 +39,21 @@ def seed_tenant(client: FalkorDB, tenant_id: str, topology: dict) -> None:
     ]:
         graph.query("MATCH (a:Tool {id:$a}), (b:Tool {id:$b}) CREATE (a)-[:COMMONLY_FOLLOWS {frequency:1, success_rate:$success}]->(b)", {"a": from_tool, "b": to_tool, "success": success})
 
+    def count(query: str) -> int:
+        result = graph.query(query)
+        return int(result.result_set[0][0])
+
+    expected_dependency_edges = sum(len(items) for items in topology["dependencies"].values())
+    checks = {
+        "services": (count("MATCH (n:Service) RETURN count(n)"), len(topology["services"])),
+        "dependency edges": (count("MATCH (:Service)-[r:DEPENDS_ON]->(:Service) RETURN count(r)"), expected_dependency_edges),
+        "tools": (count("MATCH (n:Tool) RETURN count(n)"), len(TOOL_DEFINITIONS)),
+        "workflow edges": (count("MATCH (:Tool)-[r:COMMONLY_FOLLOWS]->(:Tool) RETURN count(r)"), 4),
+    }
+    mismatches = [f"{name}: found {actual}, expected {expected}" for name, (actual, expected) in checks.items() if actual != expected]
+    if mismatches:
+        raise RuntimeError(f"Invalid FalkorDB seed for {tenant_id}: " + "; ".join(mismatches))
+
 
 def main() -> None:
     client = FalkorDB(host=os.getenv("FALKORDB_HOST", "localhost"), port=int(os.getenv("FALKORDB_PORT", "6379")))

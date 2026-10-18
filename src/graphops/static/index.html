@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>GraphOps | Safe incident investigation</title>
     <link rel="stylesheet" href="styles.css" />
+    <style>
+      h3 { margin: 14px 0 6px; font-size: .82rem; color: #cfe1fb; }
+      .explain-list { list-style: none; padding: 0; margin: 0 0 10px; }
+      .explain-list li { display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; border-bottom: 1px solid rgba(35,57,83,.55); font-size: .82rem; }
+    </style>
   </head>
   <body>
     <main>
@@ -23,6 +28,7 @@
       <p id="notice" role="status" aria-live="polite">Choose a scenario to begin. All diagnostics are fixture-backed; recovery is simulated only.</p>
       <section id="workspace" class="workspace hidden">
         <article class="panel span-2"><h2>Incident and graph context</h2><div id="incident"></div><div id="graph"></div></article>
+        <article class="panel"><h2>Why this tool?</h2><div id="selection"></div></article>
         <article class="panel"><h2>Hypotheses</h2><div id="hypotheses"></div></article>
         <article class="panel"><h2>Investigation timeline</h2><ol id="timeline" class="timeline"></ol></article>
         <article class="panel"><h2>Recovery safety gate</h2><div id="plan"></div></article>

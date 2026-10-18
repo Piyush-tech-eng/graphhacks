@@ -185,6 +185,7 @@ class GraphOpsEngine:
         """Run the same deterministic fixtures through GraphOps and a flat baseline."""
         cases: list[dict[str, Any]] = []
         for scenario in self.scenarios():
+            scenario_definition = get_scenario(scenario["id"])
             isolated = GraphOpsEngine(FixtureGraphStore())
             incident = isolated.create_incident(scenario["id"])
             isolated.run_to_plan(incident.id)
@@ -193,12 +194,8 @@ class GraphOpsEngine:
             # A deliberately flat baseline asks only the alerting service and never
             # traverses a dependency edge; it is an explicit comparison mode, not an
             # assertion about a real LLM's performance.
-            flat_leading = "h-recent-deployment" if scenario["id"] == "bad-checkout-deployment" else "h-insufficient-evidence"
-            expected = {
-                "db-pool-exhaustion": "h-database-pool",
-                "bad-checkout-deployment": "h-recent-deployment",
-                "incomplete-inventory": "h-insufficient-evidence",
-            }[scenario["id"]]
+            flat_leading = "h-recent-deployment" if scenario_definition["truth"] == "bad_deployment" else "h-insufficient-evidence"
+            expected = scenario_definition["expected_hypothesis"]
             cases.append({
                 "scenario_id": scenario["id"], "expected_hypothesis": expected,
                 "graphops_hypothesis": leading,
@@ -207,16 +204,18 @@ class GraphOpsEngine:
                 "flat_baseline_correct": flat_leading == expected,
                 "graphops_tool_calls": len([event for event in final.trace if event.event_type == "tool_completed"]),
                 "action_status": final.action_plan.status if final.action_plan else final.status,
+                "unsafe_action_expected": scenario_definition["unsafe_action_expected"],
             })
         total = len(cases)
+        unsafe_cases = [item for item in cases if item["unsafe_action_expected"]]
         return {
-            "measurement_note": "These are deterministic fixture results, not claims about production incidents or LLM accuracy.",
+            "measurement_note": "These are deterministic fixture results, not claims about production incidents or LLM accuracy. The flat baseline is a fixed alert-only scenario-class mapping, not an independently executed selector.",
             "cases": cases,
             "summary": {
                 "case_count": total,
                 "graphops_top1_accuracy": sum(item["graphops_correct"] for item in cases) / total,
                 "flat_baseline_top1_accuracy": sum(item["flat_baseline_correct"] for item in cases) / total,
-                "unsafe_action_block_rate": sum(item["action_status"] == "blocked" for item in cases) / len([item for item in cases if item["scenario_id"] == "incomplete-inventory"]),
+                "unsafe_action_block_rate": (sum(item["action_status"] == "blocked" for item in unsafe_cases) / len(unsafe_cases)) if unsafe_cases else None,
                 "median_graphops_tool_calls": sorted(item["graphops_tool_calls"] for item in cases)[total // 2],
             },
         }

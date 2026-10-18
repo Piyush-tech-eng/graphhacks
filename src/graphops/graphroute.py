@@ -84,6 +84,14 @@ class GraphRouteSelector:
         # treating the alerting service itself as the only possible cause.
         if self._completed(incident, "dependency_context", target) and primary_dependency:
             add("get_service_metrics", primary_dependency, "metrics", ("DEPENDENCY_METRICS_UNCHECKED",), 0.88, 0.96, 0.94)
+            has_healthy_dependency = any(
+                observation.kind == "health"
+                and observation.service_id != target
+                and observation.values.get("state") == "healthy"
+                for observation in incident.observations
+            )
+            if not has_healthy_dependency:
+                add("get_service_health", primary_dependency, "health", ("DEPENDENCY_COUNTER_CHECK_REQUIRED",), 0.84, 0.92, 0.90)
             if self._completed(incident, "metrics", primary_dependency):
                 add("search_logs", primary_dependency, "logs", ("DEPENDENCY_LOGS_UNCHECKED",), 0.92, 0.97, 0.96)
 
@@ -125,7 +133,7 @@ class GraphRouteSelector:
             if not tool.enabled or tool.risk_tier == RiskTier.HIGH:
                 continue
             default_history = TRANSITION_PRIOR.get((incident.last_tool_id or "", tool.id), 0.50)
-            history = self.graph.transition_prior(incident.tenant_id, incident.last_tool_id, tool.id, default_history)
+            history, history_source = self.graph.transition_prior_details(incident.tenant_id, incident.last_tool_id, tool.id, default_history)
             risk = {RiskTier.LOW: 0.0, RiskTier.MEDIUM: 0.65, RiskTier.HIGH: 1.0}[tool.risk_tier]
             score = (
                 0.28 * candidate.task_relevance
@@ -152,6 +160,7 @@ class GraphRouteSelector:
                 graph_facts_used=list(candidate.graph_facts),
                 expected_evidence=", ".join(tool.evidence_types),
                 risk_tier=tool.risk_tier,
+                historical_success_source=history_source,
             ))
         ranked.sort(key=lambda item: (-item.score, item.tool_id, item.target_service_id))
         for index, selection in enumerate(ranked, start=1):

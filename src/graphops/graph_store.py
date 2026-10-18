@@ -117,6 +117,11 @@ class FixtureGraphStore:
         """Workflow-graph signal used by GraphRoute after safe candidates exist."""
         return default
 
+    def transition_prior_details(self, tenant_id: str, last_tool_id: str | None, next_tool_id: str, default: float) -> tuple[float, str]:
+        if not last_tool_id:
+            return default, "static GraphRoute prior (cold start)"
+        return self.transition_prior(tenant_id, last_tool_id, next_tool_id, default), "static GraphRoute prior"
+
     def record_incident(self, incident: Incident) -> None:
         """Persist runtime graph facts when the configured store supports it."""
 
@@ -209,46 +214,67 @@ class FalkorDBGraphStore(FixtureGraphStore):
         )
         return float(rows[0][0]) if rows and rows[0][0] is not None else default
 
+    def transition_prior_details(self, tenant_id: str, last_tool_id: str | None, next_tool_id: str, default: float) -> tuple[float, str]:
+        if not self._connected or not last_tool_id:
+            source = "static GraphRoute prior (cold start)" if not last_tool_id else "static GraphRoute fallback (FalkorDB unavailable)"
+            return default, source
+        rows = self._rows(
+            tenant_id,
+            "MATCH (:Tool {id: $last_tool_id})-[r:COMMONLY_FOLLOWS]->(:Tool {id: $next_tool_id}) RETURN r.success_rate LIMIT 1",
+            {"last_tool_id": last_tool_id, "next_tool_id": next_tool_id},
+        )
+        if rows and rows[0][0] is not None:
+            return float(rows[0][0]), "configured FalkorDB COMMONLY_FOLLOWS edge"
+        return default, "static GraphRoute fallback (no matching FalkorDB edge)"
+
+    def _expect_write(self, tenant_id: str, query: str, params: dict[str, Any], record: str) -> None:
+        rows = self._rows(tenant_id, query, params)
+        if not rows:
+            raise RuntimeError(f"FalkorDB did not persist {record}; verify the tenant graph is seeded")
+
     def record_incident(self, incident: Incident) -> None:
         if not self._connected:
             return
-        self._rows(
+        self._expect_write(
             incident.tenant_id,
             "MERGE (i:Incident {id: $id}) SET i.summary = $summary, i.severity = $severity, i.scenario_id = $scenario_id, i.status = $status "
             "MERGE (r:TaskRun {id: $run_id}) SET r.incident_id = $id, r.tenant_id = $tenant_id, r.started_at = $started_at, r.selection_policy = 'graphroute-v2' "
-            "MERGE (i)-[:HAS_RUN]->(r)",
+            "MERGE (i)-[:HAS_RUN]->(r) RETURN r.id",
             {
                 "id": incident.id, "summary": incident.summary, "severity": incident.severity,
                 "scenario_id": incident.scenario_id, "status": incident.status, "run_id": incident.id,
                 "tenant_id": incident.tenant_id, "started_at": incident.created_at,
             },
+            "incident and task run",
         )
 
     def record_selection(self, incident: Incident, selection: Selection) -> None:
         if not self._connected:
             return
-        self._rows(
+        self._expect_write(
             incident.tenant_id,
             "MATCH (t:Tool {id: $tool_id}), (r:TaskRun {id: $run_id}) "
             "MERGE (t)-[s:SELECTED_FOR]->(r) "
-            "SET s.rank = $rank, s.score = $score, s.target_service_id = $target_service_id, s.reason_codes = $reason_codes",
+            "SET s.rank = $rank, s.score = $score, s.target_service_id = $target_service_id, s.reason_codes = $reason_codes "
+            "RETURN t.id",
             {
                 "tool_id": selection.tool_id, "run_id": incident.id, "rank": selection.rank,
                 "score": selection.score, "target_service_id": selection.target_service_id,
                 "reason_codes": selection.reason_codes,
             },
+            "tool selection",
         )
 
     def record_observation(self, incident: Incident, observation: Observation) -> None:
         if not self._connected:
             return
-        self._rows(
+        self._expect_write(
             incident.tenant_id,
             "MERGE (o:Observation {id: $id}) "
             "SET o.kind = $kind, o.source = $source, o.timestamp = $timestamp, o.service_id = $service_id, "
             "o.summary = $summary, o.fixture_id = $fixture_id, o.tool_run_id = $tool_run_id, o.values_json = $values_json "
             "WITH o MATCH (s:Service {id: $service_id}), (i:Incident {id: $incident_id}) "
-            "MERGE (o)-[:OBSERVED_ON]->(s) MERGE (i)-[:HAS_OBSERVATION]->(o)",
+            "MERGE (o)-[:OBSERVED_ON]->(s) MERGE (i)-[:HAS_OBSERVATION]->(o) RETURN o.id",
             {
                 "id": observation.id, "kind": observation.kind, "source": observation.source,
                 "timestamp": observation.timestamp, "service_id": observation.service_id,
@@ -256,21 +282,26 @@ class FalkorDBGraphStore(FixtureGraphStore):
                 "tool_run_id": observation.tool_run_id, "values_json": json.dumps(observation.values, sort_keys=True),
                 "incident_id": incident.id,
             },
+            "observation",
         )
 
     def record_action_plan(self, incident: Incident, plan: ActionPlan) -> None:
         if not self._connected:
             return
-        self._rows(
+        self._expect_write(
             incident.tenant_id,
             "MERGE (p:ActionPlan {id: $id}) "
             "SET p.action_type = $action_type, p.target_id = $target_service_id, p.status = $status, "
-            "p.simulation_only = true, p.impact_complete = $impact_complete, p.blocked_reason = $blocked_reason "
+            "p.simulation_only = true, p.impact_complete = $impact_complete, p.blocked_reason = $blocked_reason, "
+            "p.hypothesis_id = $hypothesis_id, p.supporting_observation_ids = $supporting_observation_ids "
             "WITH p MATCH (i:Incident {id: $incident_id}), (s:Service {id: $target_service_id}) "
-            "MERGE (i)-[:PROPOSES]->(p) MERGE (p)-[:TARGETS]->(s)",
+            "MERGE (i)-[:PROPOSES]->(p) MERGE (p)-[:TARGETS]->(s) RETURN p.id",
             {
                 "id": plan.id, "action_type": plan.action_type, "target_service_id": plan.target_service_id,
                 "status": plan.status, "impact_complete": plan.impact_complete,
                 "blocked_reason": plan.blocked_reason or "", "incident_id": incident.id,
+                "hypothesis_id": plan.hypothesis_id or "",
+                "supporting_observation_ids": plan.supporting_observation_ids,
             },
+            "action plan",
         )

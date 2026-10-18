@@ -26,8 +26,18 @@ function render(data) {
   $("#hypotheses").innerHTML = (incident.hypotheses || []).map((h) => `<div class="hypothesis ${escape(h.status)}"><span class="status ${statusClass(h.status)}">${escape(h.status)} · ${escape(h.confidence_label)}</span><br>${escape(h.statement)}<small>Support: ${h.support_ids?.map(escape).join(", ") || "none"} · Counter-evidence: ${h.contradiction_ids?.map(escape).join(", ") || "none"}</small></div>`).join("") || "<p class='subtitle'>Evidence ledger will appear after the first tool result.</p>";
   const timeline = (incident.trace || []).filter((event) => ["tool_selected", "tool_completed", "action_plan_proposed", "action_plan_approved", "recovery_simulated"].includes(event.event_type));
   $("#timeline").innerHTML = timeline.map((event) => `<li><strong>${escape(event.event_type.replaceAll("_", " "))}</strong><small>${escape(JSON.stringify(event.payload))}</small></li>`).join("") || "<li>No steps recorded.</li>";
+  renderSelection(incident);
   renderPlan(incident.action_plan);
   $("#trace").textContent = JSON.stringify(incident.trace || [], null, 2);
+}
+
+function renderSelection(incident) {
+  const latest = incident.selections?.at(-1);
+  if (!latest) { $("#selection").innerHTML = "<p class='subtitle'>The routing explanation appears after the first diagnostic selection.</p>"; return; }
+  const componentRows = Object.entries(latest.score_components || {}).map(([name, value]) => `<li><span>${escape(name.replaceAll("_", " "))}</span><strong>${escape(value)}</strong></li>`).join("");
+  const linked = (incident.observations || []).slice(-3).map((item) => `<li><strong>${escape(item.kind)}</strong> on ${escape(item.service_id)} · ${escape(item.summary)}</li>`).join("");
+  const graphFacts = (latest.graph_facts_used || []).map((fact) => `<li>${escape(fact)}</li>`).join("");
+  $("#selection").innerHTML = `<p><strong>${escape(latest.tool_id)}</strong> → ${escape(latest.target_service_id)} <span class="badge">score ${escape(latest.score)}</span></p><p class="subtitle">${escape((latest.reason_codes || []).join(" · "))} · expects ${escape(latest.expected_evidence)}</p><p class="subtitle">Transition prior: ${escape(latest.historical_success_source || "not recorded")} (${escape(latest.score_components?.historical_success ?? "n/a")}).</p><h3>Score components</h3><ul class="explain-list">${componentRows}</ul><h3>Graph facts used</h3><ul class="explain-list">${graphFacts || "<li>No dependency facts supplied.</li>"}</ul><h3>Recent evidence</h3><ul class="explain-list">${linked || "<li>No observations recorded yet.</li>"}</ul>`;
 }
 
 function renderPlan(plan) {
@@ -36,7 +46,8 @@ function renderPlan(plan) {
   let actions = "";
   if (plan.status === "pending_approval") actions = `<button id="approve" data-plan="${escape(plan.id)}">Approve simulation</button>`;
   if (plan.status === "approved") actions = `<button id="simulate" data-plan="${escape(plan.id)}">Run simulation only</button>`;
-  $("#plan").innerHTML = `<p><span class="status ${statusClass(plan.status)}">${escape(plan.status)}</span></p><dl class="kv"><dt>Action</dt><dd>${escape(plan.action_type)} on ${escape(plan.target_service_id)}</dd><dt>Impact</dt><dd>${impacts}</dd><dt>Inventory</dt><dd>${plan.impact_complete ? "complete" : "unknown — fail closed"}</dd><dt>Reason</dt><dd>${escape(plan.reason)}</dd></dl><p class="subtitle">${escape(plan.blocked_reason || "Explicit approval is required before a fixture-only simulation.")}</p>${actions}`;
+  const checks = (plan.preconditions || []).map((item) => `<li class="${item.passed ? "safe" : "blocked"}">${item.passed ? "✓" : "✕"} ${escape(item.name)}</li>`).join("");
+  $("#plan").innerHTML = `<p><span class="status ${statusClass(plan.status)}">${escape(plan.status)}</span></p><dl class="kv"><dt>Action</dt><dd>${escape(plan.action_type)} on ${escape(plan.target_service_id)}</dd><dt>Impact</dt><dd>${impacts}</dd><dt>Inventory</dt><dd>${plan.impact_complete ? "complete" : "unknown — fail closed"}</dd><dt>Diagnosis</dt><dd>${escape(plan.hypothesis_id || "No supported root-cause hypothesis")}</dd><dt>Action source</dt><dd>${escape(plan.action_source || "synthetic scenario fixture")}</dd><dt>Evidence</dt><dd>${(plan.supporting_observation_ids || []).map(escape).join(", ") || "none"}</dd><dt>Reason</dt><dd>${escape(plan.reason)}</dd></dl><h3>Safety checks</h3><ul class="explain-list">${checks}</ul><p class="subtitle">${escape(plan.blocked_reason || "Explicit approval is required before a fixture-only simulation.")}</p>${actions}`;
   $("#approve")?.addEventListener("click", () => approve(plan.id));
   $("#simulate")?.addEventListener("click", () => simulate(plan.id));
 }

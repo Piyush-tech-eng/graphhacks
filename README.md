@@ -34,11 +34,24 @@ To launch the dashboard after setup:
 
 Open `http://127.0.0.1:8000`; opening `static/index.html` directly does not start the API.
 
-To exercise the core without the web server:
+### macOS and Linux
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
+python -m uvicorn graphops.api:app --reload
+```
+
+Open `http://127.0.0.1:8000` in a browser. The persisted SQLite trace survives process restarts, while active incident state and approval state are kept in memory and are not restored after restart.
+
+To exercise the core and HTTP routes without starting a separate server:
 
 ```powershell
 python scripts/run_benchmark.py
 python -m unittest discover -s tests -v
+python -m pytest -q
 ```
 
 ## FalkorDB mode
@@ -74,12 +87,17 @@ The seed script resets and rebuilds one named graph per tenant. With `FALKORDB_E
 1. **Database-pool exhaustion** — `checkout-api` leads through `orders-db` metrics and logs. The plan lists direct and transitive dependents before a simulated restart.
 2. **Bad checkout deployment** — a recent release plus a matching application log supports a simulated rollback proposal.
 3. **Incomplete inventory** — the action is blocked because unknown impact is not treated as zero impact.
+4. **Northstar identity deployment** — exercises the second tenant graph and proposes a simulated rollback after checking the Identity API's database dependency.
 
-The two tenants have different service graphs; a lookup for an Acme service cannot resolve inside the Northstar graph. The unit suite verifies first-call routing, direct and transitive blast radius, tenant isolation, evidence-linked approval, simulation gating, and the blocked-impact scenario.
+The two tenants have different service graphs; a lookup for an Acme service cannot resolve inside the Northstar graph. The suite verifies first-call routing, direct and transitive blast radius, tenant isolation, evidence-linked approval, simulation gating, and the blocked-impact scenario.
+
+The benchmark's flat baseline is a fixed alert-only mapping by scenario class. It is not an independently executed selector and must not be interpreted as a controlled comparison. The separate catalog-scale 20/60/150/300 tool sweep from the design remains future evaluation work.
 
 ## Safety and scope
 
 This is an educational, synthetic-data MVP. Diagnostic outputs come from local fixtures. The simulator only creates an in-memory verification observation and has no shell, cloud, HTTP, credential, notification, or production-control capability. It does not claim production readiness, autonomous remediation, or benchmark gains outside the reported fixture suite.
+
+AI assistance disclosure: This project was developed with OpenAI Codex; its implementation and test results are documented in this repository.
 
 ## Project layout
 

@@ -6,8 +6,9 @@ import json
 import os
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 class SQLiteTraceStore:
@@ -20,7 +21,7 @@ class SQLiteTraceStore:
         self._memory_connection = sqlite3.connect(":memory:", check_same_thread=False) if configured == ":memory:" else None
         if self._memory_connection is not None:
             self._memory_connection.row_factory = sqlite3.Row
-        with self._connect() as connection:
+        with self._connection() as connection:
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS trace_events (
                     incident_id TEXT NOT NULL,
@@ -39,15 +40,26 @@ class SQLiteTraceStore:
         connection.row_factory = sqlite3.Row
         return connection
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Commit/rollback each operation and close every file-backed connection."""
+        connection = self._connect()
+        try:
+            with connection:
+                yield connection
+        finally:
+            if connection is not self._memory_connection:
+                connection.close()
+
     def append(self, incident_id: str, event: dict[str, Any]) -> None:
-        with self._lock, self._connect() as connection:
+        with self._lock, self._connection() as connection:
             connection.execute(
                 "INSERT OR REPLACE INTO trace_events (incident_id, sequence, event_type, created_at, payload_json) VALUES (?, ?, ?, ?, ?)",
                 (incident_id, event["sequence"], event["event_type"], event["created_at"], json.dumps(event["payload"], sort_keys=True)),
             )
 
     def list(self, incident_id: str) -> list[dict[str, Any]]:
-        with self._lock, self._connect() as connection:
+        with self._lock, self._connection() as connection:
             rows = connection.execute(
                 "SELECT sequence, event_type, created_at, payload_json FROM trace_events WHERE incident_id = ? ORDER BY sequence",
                 (incident_id,),

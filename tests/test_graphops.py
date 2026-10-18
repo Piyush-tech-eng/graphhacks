@@ -1,11 +1,15 @@
 import sys
+import sqlite3
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from graphops.engine import GraphOpsEngine
 from graphops.evidence import validate_evidence
+from graphops.fixtures import get_scenario
 from graphops.graph_store import FixtureGraphStore
 from graphops.graphroute import GraphRouteSelector
 from graphops.trace_store import SQLiteTraceStore
@@ -69,9 +73,52 @@ class GraphOpsTests(unittest.TestCase):
 
     def test_benchmark_reports_measured_fixture_values(self):
         result = GraphOpsEngine().benchmark()
-        self.assertEqual(3, result["summary"]["case_count"])
+        self.assertEqual(4, result["summary"]["case_count"])
         self.assertEqual(1.0, result["summary"]["graphops_top1_accuracy"])
         self.assertEqual(1.0, result["summary"]["unsafe_action_block_rate"])
+        self.assertIn("not an independently executed selector", result["measurement_note"])
+
+    def test_northstar_scenario_exercises_separate_tenant_graph(self):
+        engine = GraphOpsEngine()
+        incident = engine.create_incident("northstar-identity-deployment")
+        engine.run_to_plan(incident.id)
+        self.assertEqual("northstar", incident.tenant_id)
+        self.assertEqual("h-recent-deployment", incident.action_plan.hypothesis_id)
+        self.assertEqual("identity-api", incident.action_plan.target_service_id)
+        self.assertTrue(all(item["passed"] for item in incident.action_plan.preconditions))
+
+    def test_action_safety_rejects_a_target_outside_alert_graph(self):
+        engine = GraphOpsEngine()
+        incident = engine.create_incident("bad-checkout-deployment")
+        engine.run_to_plan(incident.id)
+        fixture = get_scenario(incident.scenario_id)
+        fixture["plan"]["target"] = "ghost-service"
+        # Alter fixture plan metadata and ensure the gate rejects a target outside
+        # the graph path supported by the incident evidence.
+        from graphops.safety import SafetyGate
+        with patch("graphops.safety.get_scenario", return_value=fixture):
+            proposed = SafetyGate(engine.graph).propose(incident)
+        self.assertFalse(next(item for item in proposed.preconditions if item["name"] == "target is in incident dependency scope")["passed"])
+        self.assertFalse(next(item for item in proposed.preconditions if item["name"] == "action target matches diagnostic evidence")["passed"])
+
+    def test_file_backed_trace_connections_close_after_operations(self):
+        original_connect = sqlite3.connect
+        connections = []
+
+        def tracked_connect(*args, **kwargs):
+            connection = original_connect(*args, **kwargs)
+            connections.append(connection)
+            return connection
+
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as directory:
+            with patch("graphops.trace_store.sqlite3.connect", side_effect=tracked_connect):
+                store = SQLiteTraceStore(str(Path(directory) / "audit.sqlite3"))
+                store.append("incident-1", {"sequence": 1, "event_type": "created", "created_at": "now", "payload": {}})
+                self.assertEqual(1, len(store.list("incident-1")))
+
+        for connection in connections:
+            with self.assertRaises(sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
 
     def test_trace_events_are_persisted_to_the_audit_store(self):
         store = SQLiteTraceStore(":memory:")
