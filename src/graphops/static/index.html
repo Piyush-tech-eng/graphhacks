@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GraphOps | Safe incident investigation</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <div><p class="eyebrow">GRAPH-NATIVE INCIDENT RESPONSE</p><h1>GraphOps</h1><p class="subtitle">Evidence before action. Impact before simulation.</p></div>
+        <span id="health" class="badge">Checking graph…</span>
+      </header>
+      <section class="control panel">
+        <label for="scenario">Synthetic incident</label>
+        <select id="scenario"></select>
+        <button id="start">Start investigation</button>
+        <button id="step" disabled>Run next safe step</button>
+        <button id="run" disabled>Run to recovery plan</button>
+        <button id="benchmark">Run benchmark</button>
+      </section>
+      <p id="notice" role="status" aria-live="polite">Choose a scenario to begin. All diagnostics are fixture-backed; recovery is simulated only.</p>
+      <section id="workspace" class="workspace hidden">
+        <article class="panel span-2"><h2>Incident and graph context</h2><div id="incident"></div><div id="graph"></div></article>
+        <article class="panel"><h2>Hypotheses</h2><div id="hypotheses"></div></article>
+        <article class="panel"><h2>Investigation timeline</h2><ol id="timeline" class="timeline"></ol></article>
+        <article class="panel"><h2>Recovery safety gate</h2><div id="plan"></div></article>
+        <article class="panel span-2"><h2>Persisted audit trace</h2><details><summary>Show machine-readable trace</summary><pre id="trace"></pre></details></article>
+      </section>
+      <section id="benchmark-output" class="panel hidden"><h2>Benchmark</h2><div id="benchmark-data"></div></section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
