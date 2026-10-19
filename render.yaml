@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: graphops-graphroute
+    runtime: python
+    plan: free
+    region: singapore
+    branch: main
+    buildCommand: python -m pip install .
+    startCommand: python -m uvicorn graphops.api:app --app-dir src --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health

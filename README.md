@@ -58,6 +58,10 @@ node tests/test_ui_state.js
 
 The dashboard presents one authoritative incident view from the API: changing the scenario clears the active evidence and plan; the graph-mode badge comes from `/health`; and the connected-data view is rendered from tenant-scoped nodes and `DEPENDS_ON` edges. The evidence timeline links tool choices, observations, hypothesis updates, recovery checks, approval, and simulated verification. The trace can be exported as JSON. Active incident state is still in memory and is not restored after a server restart.
 
+## Deploying on Render
+
+The repository includes a `render.yaml` Blueprint for a Python web service. In the Render dashboard, create a Blueprint from this repository and deploy the `main` branch. The service installs the project, starts Uvicorn on Render's assigned port, and uses `/health` for its health check. The default Blueprint uses Render's free plan in Singapore; free services can spin down while idle. Incident objects are held in process memory, and the default SQLite trace file is on the instance's ephemeral filesystem, so this configuration is for a demo rather than durable multi-instance operation. See [Render's FastAPI deployment guide](https://render.com/docs/deploy-fastapi) and [Blueprint reference](https://render.com/docs/blueprint-spec).
+
 ## FalkorDB mode
 
 The app is runnable by default with deterministic in-process graph fixtures so judges can reproduce the incident loop without external infrastructure. To use the FalkorDB-backed graph path:
